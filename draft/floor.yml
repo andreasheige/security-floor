@@ -1,0 +1,111 @@
+# security-floor: the server-side check a local bypass can't skip (security plan 11.1).
+# Lives at .github/workflows/floor.yml once Andreas moves it there (agents can't write workflow files).
+#
+# Repos call this reusable workflow pinned to a commit SHA of this repo, so a PR
+# in the calling repo can't weaken the checks: the rules live here, inline, and
+# change only by a merge in this repo plus a SHA bump in each caller.
+#
+# Deterministic only: no LLM, no secrets, contents: read. Repo-local scanner
+# config (.gitleaks.toml, .gitleaksignore) and inline `gitleaks:allow` comments
+# are ignored. A PR that touches CI, scanner, git-hook or review-loop config
+# fails here; an admin merges it past the required check on purpose.
+name: security-floor
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  floor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repo under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks (pinned by sha256)
+        env:
+          VERSION: "8.30.1"
+          SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          tgz="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -fsSL -o "$tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "$SHA256  $tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$tgz" -C "$RUNNER_TEMP/bin" gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Work out the commit range
+        id: range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          zero=0000000000000000000000000000000000000000
+          case "$EVENT" in
+            pull_request)
+              head="$PR_HEAD"; base="$(git merge-base "$PR_BASE" "$PR_HEAD")" ;;
+            push)
+              head="$PUSH_AFTER"; base="$PUSH_BEFORE"
+              # A new branch, or a before-commit this clone doesn't have: scan all of head's history.
+              if [ "$base" = "$zero" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base=""; fi ;;
+            *)
+              head="$(git rev-parse HEAD)"; base="" ;;
+          esac
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "Scanning ${base:-<all history>}..$head"
+
+      - name: Secrets (gitleaks default rules + review-loop canary)
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          cfg="$RUNNER_TEMP/floor-gitleaks.toml"
+          cat > "$cfg" <<'TOML'
+          [extend]
+          useDefault = true
+
+          [[rules]]
+          id = "reviewloop-canary"
+          description = "review-loop canary"
+          regex = '''REVIEWLOOP_CANARY_[A-Z0-9]{20}'''
+          TOML
+          # The repo's own .gitleaksignore doesn't count here. gitleaks 8.30 reads one from the scanned
+          # folder even with --gitleaks-ignore-path set elsewhere, so it is also removed from this
+          # throwaway checkout (history scanning doesn't need the working tree).
+          noignore="$RUNNER_TEMP/no-ignore"; mkdir -p "$noignore"
+          rm -f .gitleaksignore
+          if [ -n "$BASE" ]; then range="$BASE..$HEAD_SHA"; else range="$HEAD_SHA"; fi
+          gitleaks git . --config "$cfg" --gitleaks-ignore-path "$noignore" --ignore-gitleaks-allow \
+            --log-opts="$range" --redact --no-banner --exit-code 1
+
+      - name: Guarded paths (CI, scanner, git-hook and review-loop config)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          # Same classes as review-loop's control-weakening rules (ci-config, scanner-config, git-hooks,
+          # review-loop-config).
+          guarded='(^|/)\.github/(workflows|actions)/|(^|/)azure-pipelines[^/]*\.ya?ml$|(^|/)\.azure-?pipelines?/|(^|/)\.gitlab-ci\.ya?ml$|(^|/)\.(circleci|buildkite)/|(^|/)Jenkinsfile$|(^|/)bitbucket-pipelines\.ya?ml$|(^|/)\.gitleaks(\.toml|ignore)$|(^|/)\.semgrep(ignore|\.ya?ml)?(/|$)|(^|/)\.?trivy(ignore|\.ya?ml)$|(^|/)\.?osv-scanner\.toml$|(^|/)\.snyk$|(^|/)\.github/dependabot\.ya?ml$|(^|/)CODEOWNERS$|(^|/)\.gitattributes$|(^|/)\.gitmodules$|(^|/)\.(npmrc|yarnrc(\.yml)?)$|(^|/)pip\.conf$|(^|/)\.(husky|githooks)/|(^|/)lefthook\.ya?ml$|(^|/)\.pre-commit-config\.ya?ml$|(^|/)\.review-loop\.toml$'
+          changed="$(git diff --name-only "$BASE" "$HEAD_SHA")"
+          hits="$(grep -Ei "$guarded" <<<"$changed" || true)"
+          if [ -n "$hits" ]; then
+            echo "::error::This PR changes guarded config; it needs an admin merge past security-floor:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No guarded config changed."

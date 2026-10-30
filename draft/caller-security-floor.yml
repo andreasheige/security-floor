@@ -1,0 +1,16 @@
+# Goes into each calling repo as .github/workflows/security-floor.yml.
+# Replace <SHA> with a full commit SHA of andreasheige/security-floor; bump it
+# deliberately. Make "security-floor / floor" a required status check on main.
+name: security-floor
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  floor:
+    uses: andreasheige/security-floor/.github/workflows/floor.yml@<SHA>
