@@ -1,5 +1,5 @@
-# security-floor: the server-side check a local bypass can't skip (security plan 11.1).
-# Lives at .github/workflows/floor.yml once Andreas moves it there (agents can't write workflow files).
+# security-floor: the server-side check a local bypass can't skip.
+# Lives at .github/workflows/floor.yml once a maintainer moves it there.
 #
 # Repos call this reusable workflow pinned to a commit SHA of this repo, so a PR
 # in the calling repo can't weaken the checks: the rules live here, inline, and
