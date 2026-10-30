@@ -1,9 +1,9 @@
 # security-floor
 
-The server-side check a local bypass can't skip (security plan 11.1). Local hooks, the
-review-loop gate and eot all run on Andreas's Mac; `--no-verify`, a husky repo, a web edit,
-another machine or a cloud agent goes around them. This reusable workflow runs the same
-deterministic checks on GitHub.
+The server-side check a local bypass can't skip. Local git hooks and review tools run on
+each developer's machine, so `--no-verify`, a repo with its own hooks path (e.g. husky), a
+web edit, another machine or a cloud agent goes around them. This reusable workflow runs the
+same deterministic checks on GitHub.
 
 - **Secrets:** gitleaks 8.30.1 (pinned by sha256) with its default rules plus the review-loop
   canary, over the PR's own commits or the pushed range. Repo-local `.gitleaks.toml`,
@@ -23,6 +23,6 @@ Callers pin a SHA, so a change here reaches a repo only when its pin is bumped.
 ## Layout
 
 - `draft/floor.yml`: the reusable workflow. It belongs at `.github/workflows/floor.yml`;
-  agents can't write workflow files, so Andreas moves it there.
+  it is kept here until a maintainer moves it into place.
 - `tests/run.sh`: runs the workflow's own step scripts against throwaway repos with a local
   gitleaks (needs gitleaks 8.30.x and uv).
