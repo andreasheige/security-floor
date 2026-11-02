@@ -3,7 +3,7 @@
 # usage: tests/run.sh [path/to/floor.yml]   (needs gitleaks 8.30.x and uv on PATH)
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
-wf="${1:-$here/draft/floor.yml}"
+wf="${1:-$here/.github/workflows/floor.yml}"
 work="$(mktemp -d)"
 uv run -q --no-project --with pyyaml python -I - "$wf" "$work" <<'EOF'
 import sys, yaml

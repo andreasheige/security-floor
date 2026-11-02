@@ -22,7 +22,6 @@ Callers pin a SHA, so a change here reaches a repo only when its pin is bumped.
 
 ## Layout
 
-- `draft/floor.yml`: the reusable workflow. It belongs at `.github/workflows/floor.yml`;
-  it is kept here until a maintainer moves it into place.
+- `.github/workflows/floor.yml`: the reusable workflow.
 - `tests/run.sh`: runs the workflow's own step scripts against throwaway repos with a local
   gitleaks (needs gitleaks 8.30.x and uv).
